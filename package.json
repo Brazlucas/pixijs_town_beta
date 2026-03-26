@@ -1,0 +1,17 @@
+{
+  "name": "poc-gather-clone",
+  "version": "1.0.0",
+  "description": "Protótipo de ambiente virtual multiplayer 2D estilo Gather Town",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "npx nodemon server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}

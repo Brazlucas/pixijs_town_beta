@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gather Clone</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0f0f1a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Courier New', monospace;
+      color: #fff;
+    }
+
+    #hud {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+      padding: 8px 16px;
+      background: rgba(0, 0, 0, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px 8px 0 0;
+      font-size: 13px;
+      width: 1200px;
+    }
+
+    #hud span { color: #aaa; }
+    #hud strong { color: #fff; }
+
+    #player-count { margin-left: auto; }
+
+    #controls-hint {
+      font-size: 11px;
+      color: #666;
+    }
+
+    #gender-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #ccc;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+    #gender-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
+    }
+    #gender-btn[data-gender="female"] {
+      border-color: #ff9fc8;
+      color: #ff9fc8;
+    }
+    #gender-btn[data-gender="female"]:hover {
+      background: rgba(255, 159, 200, 0.15);
+    }
+
+    #game-canvas-wrapper {
+      border: 2px solid rgba(255, 255, 255, 0.15);
+      border-top: none;
+      line-height: 0; /* remove gap under canvas */
+    }
+
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+
+  <div id="hud">
+    <div id="player-name"><span>Você: </span><strong>Conectando...</strong></div>
+    <button id="gender-btn" data-gender="male">♂ Masculino</button>
+    <div id="player-count"><span>Online: </span><strong>0</strong></div>
+    <div id="controls-hint">WASD / Setas para mover</div>
+  </div>
+
+  <div id="game-canvas-wrapper"></div>
+
+  <!-- PixiJS v7 via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
+
+  <!-- Socket.io client (servido automaticamente pelo servidor Express) -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <!-- Gerador de sprites procedurais (fallback quando não há atlas) -->
+  <script src="src/sprites.js"></script>
+
+  <!-- Lógica do jogo -->
+  <script src="src/main.js"></script>
+
+</body>
+</html>

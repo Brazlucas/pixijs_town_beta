@@ -1,0 +1,47 @@
+{
+  "_comment": "Exemplo de atlas no formato TexturePacker / PixiJS Spritesheet.",
+  "_comment2": "Para usar: substitua este arquivo + player.png com seu spritesheet real.",
+  "_comment3": "Gere com TexturePacker (https://www.codeandweb.com/texturepacker) ou Aseprite.",
+
+  "frames": {
+    "walk_down_0":  { "frame": { "x":   0, "y":  0, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+    "walk_down_1":  { "frame": { "x":  32, "y":  0, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+    "walk_down_2":  { "frame": { "x":  64, "y":  0, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+    "walk_down_3":  { "frame": { "x":  96, "y":  0, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+
+    "walk_up_0":    { "frame": { "x":   0, "y": 48, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+    "walk_up_1":    { "frame": { "x":  32, "y": 48, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+    "walk_up_2":    { "frame": { "x":  64, "y": 48, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+    "walk_up_3":    { "frame": { "x":  96, "y": 48, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+
+    "walk_left_0":  { "frame": { "x":   0, "y": 96, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+    "walk_left_1":  { "frame": { "x":  32, "y": 96, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+    "walk_left_2":  { "frame": { "x":  64, "y": 96, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+    "walk_left_3":  { "frame": { "x":  96, "y": 96, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+
+    "walk_right_0": { "frame": { "x":   0, "y": 144, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+    "walk_right_1": { "frame": { "x":  32, "y": 144, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+    "walk_right_2": { "frame": { "x":  64, "y": 144, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+    "walk_right_3": { "frame": { "x":  96, "y": 144, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } },
+
+    "idle_0":       { "frame": { "x":   0, "y": 192, "w": 32, "h": 48 }, "rotated": false, "trimmed": false, "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 48 }, "sourceSize": { "w": 32, "h": 48 } }
+  },
+
+  "animations": {
+    "walk_down":  ["walk_down_0",  "walk_down_1",  "walk_down_2",  "walk_down_3"],
+    "walk_up":    ["walk_up_0",    "walk_up_1",    "walk_up_2",    "walk_up_3"],
+    "walk_left":  ["walk_left_0",  "walk_left_1",  "walk_left_2",  "walk_left_3"],
+    "walk_right": ["walk_right_0", "walk_right_1", "walk_right_2", "walk_right_3"],
+    "idle":       ["idle_0"]
+  },
+
+  "meta": {
+    "app": "TexturePacker",
+    "version": "1.0",
+    "image": "player.png",
+    "format": "RGBA8888",
+    "size": { "w": 128, "h": 240 },
+    "scale": "1",
+    "_layout": "5 linhas de 4 frames (32x48 cada). Linha 0=down, 1=up, 2=left, 3=right, 4=idle"
+  }
+}

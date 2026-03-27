@@ -1,471 +1,254 @@
 // ============================================================
-//  main.js — Lógica principal do cliente (PixiJS v7 + Socket.io)
+//  main.js — Entry point: orquestra todos os módulos
 //
-//  Fluxo de assets:
-//   1. Tenta carregar 'assets/player.json' (atlas real com player.png).
-//   2. Se não existir, usa sprites.js para gerar pixel art procedural.
-//
-//  Fluxo de animação:
-//   - Jogador local: input de teclado → troca animação → envia {x,y,direction}
-//   - Jogadores remotos: recebe {x,y,direction} → interpola posição + troca animação
+//  Dependências (carregadas via <script> antes deste arquivo):
+//    GameConfig, InputManager, Camera, WelcomeManager,
+//    PlayerFactory, OfficeMap, Actions, Hud, VoiceManager,
+//    GatherSprites, PIXI, io (Socket.io)
 // ============================================================
 (async function () {
   'use strict';
 
-  // ─── Constantes ────────────────────────────────────────────────────────────
-  const MAP_WIDTH    = 1200;
-  const MAP_HEIGHT   = 800;
-  const PLAYER_SPEED = 3;
-  const LERP_FACTOR  = 0.12;   // suavidade da interpolação remota (0=parado, 1=snap)
-  const SEND_MS      = 50;     // throttle de envio ao servidor (20 Hz)
-  const SPRITE_SCALE = 1.5;    // escala do pixel art (maior = mais nítido na tela)
-  const FRAME_H      = 48;     // altura do frame definida em sprites.js
-  // Posição Y do label de nome, relativo ao container cujo (0,0) está nos pés
-  const LABEL_Y      = -(FRAME_H * SPRITE_SCALE * 0.9) - 6; // ≈ -71
+  const C = window.GameConfig;
 
-  // ─── 1. Configuração do PixiJS ─────────────────────────────────────────────
-  // SCALE_MODE.NEAREST: sem interpolação bilinear → pixels nítidos (pixel art)
+  // ─── 1. Perfil do jogador ─────────────────────────────────────────────────
+  let profile = WelcomeManager.loadProfile();
+  if (!profile) {
+    profile = await WelcomeManager.showWelcomeModal();
+    WelcomeManager.saveProfile(profile);
+  } else {
+    WelcomeManager.hideWelcomeModal();
+  }
+
+  // ─── 2. PixiJS ────────────────────────────────────────────────────────────
   PIXI.settings.SCALE_MODE = PIXI.SCALE_MODES.NEAREST;
 
   const app = new PIXI.Application({
-    width:           MAP_WIDTH,
-    height:          MAP_HEIGHT,
-    backgroundColor: 0x2d5a27,
-    antialias:       false,  // desligado para manter a estética pixel art
+    width:           C.VIEWPORT_W,
+    height:          C.VIEWPORT_H,
+    backgroundColor: 0x1a1a2e,
+    antialias:       false,
     resolution:      window.devicePixelRatio || 1,
     autoDensity:     true,
   });
-
   document.getElementById('game-canvas-wrapper').appendChild(app.view);
 
-  // ─── 2. Layers do stage ────────────────────────────────────────────────────
-  const mapLayer    = new PIXI.Container();
-  const playerLayer = new PIXI.Container(); // terá depth sort por Y no game loop
-  app.stage.addChild(mapLayer);
-  app.stage.addChild(playerLayer);
+  // ─── 3. World layers ─────────────────────────────────────────────────────
+  const world          = new PIXI.Container();
+  const mapLayer       = new PIXI.Container();
+  const furnitureLayer = new PIXI.Container();
+  const areaLayer      = new PIXI.Container();
+  const playerLayer    = new PIXI.Container();
+  world.addChild(mapLayer, furnitureLayer, areaLayer, playerLayer);
+  app.stage.addChild(world);
 
-  drawMap(mapLayer, MAP_WIDTH, MAP_HEIGHT);
+  // ─── 4. Módulos ───────────────────────────────────────────────────────────
+  const camera = new Camera(world, C.VIEWPORT_W, C.VIEWPORT_H);
+  const input  = new InputManager();
 
-  // ─── 3. Carregamento de assets ─────────────────────────────────────────────
-  //
-  // Modo A — Atlas real (player.json + player.png):
-  //   Todos os jogadores compartilham as mesmas texturas.
-  //   A cor individual é aplicada via sprite.tint.
-  //   Use este modo quando tiver um spritesheet desenhado manualmente.
-  //
-  // Modo B — Sprites procedurais (sprites.js):
-  //   Cada jogador recebe seu próprio conjunto de texturas coloridas.
-  //   Funciona sem nenhum arquivo de asset externo.
-  //
-  let sharedAnimations = null;
-  let useAtlas         = false;
-
+  let sharedAnimations = null, useAtlas = false;
   try {
     const sheet      = await PIXI.Assets.load('assets/player.json');
-    sharedAnimations = sheet.animations; // { walk_down: [...], walk_up: [...], ... }
+    sharedAnimations = sheet.animations;
     useAtlas         = true;
-    console.log('[Assets] Atlas carregado:', Object.keys(sharedAnimations).join(', '));
-  } catch (_) {
-    console.warn('[Assets] assets/player.json não encontrado — usando sprites procedurais.');
-  }
+  } catch (_) {}
 
-  // ─── 4. Socket.io ──────────────────────────────────────────────────────────
-  const socket = io();
+  // ─── 5. Rede ──────────────────────────────────────────────────────────────
+  const socket       = io();
+  const voiceManager = new VoiceManager(socket);
 
-  let localPlayer    = null;
-  const remotePlayers = new Map(); // id → { sprite, targetX, targetY, direction, color, gender }
+  let localPlayer      = null;
+  const remotePlayers  = new Map();
+  let lastSendTime     = 0;
+  let localDirection   = 'idle';
+  let rooms = [], desks = [];
+  let mapW = 3200, mapH = 2400;
+  let currentVoiceZone = null;
+  let actionCooldown   = 0;
 
-  let lastSendTime   = 0;
-  let localDirection = 'idle'; // animação atual do jogador local
-  let localGender    = 'male'; // gênero do jogador local
+  // Helpers locais (atalhos que usam estado do closure)
+  const getAnims = (color, gender) =>
+    PlayerFactory.getAnimations(app, color, gender, useAtlas, sharedAnimations);
 
-  const keys = {};
-  window.addEventListener('keydown', (e) => { keys[e.code] = true; });
-  window.addEventListener('keyup',   (e) => { keys[e.code] = false; });
+  // ─── 6. Socket Events ────────────────────────────────────────────────────
 
-  // ─── 5. Eventos do Socket.io ───────────────────────────────────────────────
+  socket.on('init', ({ self, players, rooms: r, desks: d, mapWidth, mapHeight }) => {
+    mapW = mapWidth; mapH = mapHeight;
+    rooms = r; desks = d;
+    camera.setMapSize(mapW, mapH);
 
-  // Recebido uma vez na conexão: dados do próprio jogador + lista dos demais
-  socket.on('init', ({ self, players }) => {
-    document.querySelector('#player-name strong').textContent = self.name;
-    updatePlayerCount(players.length + 1);
+    OfficeMap.draw(mapLayer, furnitureLayer, mapW, mapH, rooms, desks);
+    OfficeMap.drawDeskAreas(areaLayer, desks, socket.id);
 
-    localGender = self.gender || 'male';
-    const anims = getAnimations(self.color, localGender);
+    self.name = profile.name;
+    self.gender = profile.gender;
+    socket.emit('player:update', { name: profile.name, gender: profile.gender });
+
+    Hud.setPlayerName(profile.name);
+    Hud.updatePlayerCount(players.length + 1);
 
     localPlayer = {
       data:   { ...self, direction: 'idle' },
-      sprite: createPlayerSprite(anims, self.name, true, self.color),
+      sprite: PlayerFactory.createSprite(getAnims(self.color, profile.gender), profile.name, true, self.color, useAtlas),
     };
     localPlayer.sprite.x = self.x;
     localPlayer.sprite.y = self.y;
     playerLayer.addChild(localPlayer.sprite);
+    PlayerFactory.setAnimation(localPlayer.sprite, 'idle');
 
-    setAnimation(localPlayer.sprite, 'idle');
-
-    players.forEach(addRemotePlayer);
+    players.forEach(addRemote);
   });
 
-  // Novo jogador entrou
   socket.on('player:joined', (data) => {
-    addRemotePlayer(data);
-    updatePlayerCount(remotePlayers.size + 1);
+    addRemote(data);
+    Hud.updatePlayerCount(remotePlayers.size + 1);
   });
 
-  // ─── PONTO CRÍTICO: posição + direção remotas ──────────────────────────────
-  //
-  // Ao receber 'player:moved' do servidor:
-  //   1. Atualizamos targetX/targetY (não a posição direta) — o game loop
-  //      vai mover o sprite suavemente até lá via LERP_FACTOR.
-  //   2. Se a direção mudou, chamamos setAnimation() para trocar o ciclo
-  //      de animação do sprite remoto (walk_left, walk_up, idle, etc.).
-  //
   socket.on('player:moved', ({ id, x, y, direction }) => {
-    const remote = remotePlayers.get(id);
-    if (!remote) return;
-
-    remote.targetX = x;
-    remote.targetY = y;
-
-    // Só troca a animação se a direção efetivamente mudou
-    if (remote.direction !== direction) {
-      remote.direction = direction;
-      setAnimation(remote.sprite, direction);
+    const r = remotePlayers.get(id);
+    if (!r) return;
+    r.targetX = x; r.targetY = y;
+    if (r.direction !== direction) {
+      r.direction = direction;
+      PlayerFactory.setAnimation(r.sprite, direction);
     }
   });
 
-  // Um jogador remoto trocou de gênero: reconstrói as texturas do sprite dele
-  socket.on('player:updated', ({ id, gender }) => {
-    const remote = remotePlayers.get(id);
-    if (!remote) return;
-
-    remote.gender = gender;
-    const newAnims = getAnimations(remote.color, gender);
-    rebuildAnimations(remote.sprite, newAnims);
+  socket.on('player:updated', ({ id, gender, name }) => {
+    const r = remotePlayers.get(id);
+    if (!r) return;
+    if (gender) { r.gender = gender; PlayerFactory.rebuildAnimations(r.sprite, getAnims(r.color, gender)); }
+    if (name)   { r.name = name; PlayerFactory.updateNameLabel(r.sprite, name); }
   });
 
-  // Jogador desconectou: remove sprite da tela
   socket.on('player:left', (id) => {
-    const remote = remotePlayers.get(id);
-    if (remote) {
-      playerLayer.removeChild(remote.sprite);
-      remote.sprite.destroy({ children: true });
-      remotePlayers.delete(id);
-      updatePlayerCount(remotePlayers.size + 1);
-    }
+    const r = remotePlayers.get(id);
+    if (r) { playerLayer.removeChild(r.sprite); r.sprite.destroy({ children: true }); remotePlayers.delete(id); }
+    Hud.updatePlayerCount(remotePlayers.size + 1);
   });
 
-  // ─── 6. Game Loop ──────────────────────────────────────────────────────────
-  app.ticker.add(() => {
+  socket.on('player:action', ({ id, action }) => {
+    const r = remotePlayers.get(id);
+    if (r) Actions.showBubble(app, r.sprite, action);
+  });
+
+  socket.on('desk:updated', (newDesks) => {
+    desks = newDesks;
+    OfficeMap.drawDeskAreas(areaLayer, desks, socket.id);
+  });
+
+  socket.on('voice:status', ({ id, active }) => {
+    const r = remotePlayers.get(id);
+    if (r) Actions.updateVoiceIndicator(r.sprite, active);
+  });
+
+  // ─── 7. Game Loop ─────────────────────────────────────────────────────────
+
+  app.ticker.add((delta) => {
     if (!localPlayer) return;
 
-    let moved  = false;
-    let newDir = null; // nome da animação alvo (ex: 'walk_left')
+    // ── Input & Movimento ─────────────────────────────────────────────────
+    let moved = false, newDir = null;
+    if (input.isDown('ArrowUp')    || input.isDown('KeyW')) { localPlayer.data.y -= C.PLAYER_SPEED; moved = true; newDir = 'walk_up'; }
+    if (input.isDown('ArrowDown')  || input.isDown('KeyS')) { localPlayer.data.y += C.PLAYER_SPEED; moved = true; newDir = 'walk_down'; }
+    if (input.isDown('ArrowLeft')  || input.isDown('KeyA')) { localPlayer.data.x -= C.PLAYER_SPEED; moved = true; newDir = 'walk_left'; }
+    if (input.isDown('ArrowRight') || input.isDown('KeyD')) { localPlayer.data.x += C.PLAYER_SPEED; moved = true; newDir = 'walk_right'; }
 
-    // Lê input — quando múltiplas teclas estão pressionadas, a última
-    // verificada tem prioridade na direção (Right > Left > Down > Up)
-    if (keys['ArrowUp']    || keys['KeyW']) { localPlayer.data.y -= PLAYER_SPEED; moved = true; newDir = 'walk_up';    }
-    if (keys['ArrowDown']  || keys['KeyS']) { localPlayer.data.y += PLAYER_SPEED; moved = true; newDir = 'walk_down';  }
-    if (keys['ArrowLeft']  || keys['KeyA']) { localPlayer.data.x -= PLAYER_SPEED; moved = true; newDir = 'walk_left';  }
-    if (keys['ArrowRight'] || keys['KeyD']) { localPlayer.data.x += PLAYER_SPEED; moved = true; newDir = 'walk_right'; }
-
-    // Clamp: mantém dentro dos limites do mapa
-    localPlayer.data.x = Math.max(16, Math.min(MAP_WIDTH  - 16, localPlayer.data.x));
-    localPlayer.data.y = Math.max(16, Math.min(MAP_HEIGHT - 16, localPlayer.data.y));
-
-    // Atualiza sprite local diretamente (sem lag — este cliente é a fonte da verdade)
+    localPlayer.data.x = Math.max(24, Math.min(mapW - 24, localPlayer.data.x));
+    localPlayer.data.y = Math.max(24, Math.min(mapH - 24, localPlayer.data.y));
     localPlayer.sprite.x = localPlayer.data.x;
     localPlayer.sprite.y = localPlayer.data.y;
 
-    // ── Troca de animação local ──────────────────────────────────────────────
-    // Ao mover: usa a animação de caminhada da direção correspondente.
-    // Ao soltar as teclas: volta para 'idle'.
     const targetAnim = moved ? newDir : 'idle';
     if (targetAnim !== localDirection) {
       localDirection = targetAnim;
-      setAnimation(localPlayer.sprite, localDirection);
+      PlayerFactory.setAnimation(localPlayer.sprite, localDirection);
     }
 
-    // ── Envia posição + direção ao servidor (com throttle) ───────────────────
-    // Incluir 'direction' aqui é o que permite que outros clientes renderizem
-    // a animação correta ao receber 'player:moved'.
+    // ── Envio de posição ──────────────────────────────────────────────────
     if (moved) {
       const now = Date.now();
-      if (now - lastSendTime >= SEND_MS) {
-        socket.emit('player:move', {
-          x:         localPlayer.data.x,
-          y:         localPlayer.data.y,
-          direction: localDirection,
-        });
+      if (now - lastSendTime >= C.SEND_MS) {
+        socket.emit('player:move', { x: localPlayer.data.x, y: localPlayer.data.y, direction: localDirection });
         lastSendTime = now;
       }
     }
 
-    // ── Interpolação dos jogadores remotos ───────────────────────────────────
-    // Cada frame aproxima o sprite de sua posição alvo usando LERP.
-    // Fórmula: pos += (alvo - pos) * fator
-    // Isso cria desaceleração suave e absorve irregularidades de rede.
-    remotePlayers.forEach((remote) => {
-      remote.sprite.x += (remote.targetX - remote.sprite.x) * LERP_FACTOR;
-      remote.sprite.y += (remote.targetY - remote.sprite.y) * LERP_FACTOR;
+    // ── Interpolação remota ───────────────────────────────────────────────
+    remotePlayers.forEach(r => {
+      r.sprite.x += (r.targetX - r.sprite.x) * C.LERP_FACTOR;
+      r.sprite.y += (r.targetY - r.sprite.y) * C.LERP_FACTOR;
     });
 
-    // ── Depth sorting ────────────────────────────────────────────────────────
-    // Jogadores com Y maior (mais "abaixo" na tela) aparecem na frente.
+    // ── Depth sort + Câmera ───────────────────────────────────────────────
     playerLayer.children.sort((a, b) => a.y - b.y);
+    camera.follow(localPlayer.data.x, localPlayer.data.y);
+
+    // ── Voice zone ────────────────────────────────────────────────────────
+    const zone = Actions.detectVoiceZone(localPlayer.data.x, localPlayer.data.y, rooms, desks);
+    if (zone !== currentVoiceZone) {
+      if (currentVoiceZone) voiceManager.leaveRoom();
+      currentVoiceZone = zone;
+      if (zone) voiceManager.joinRoom(zone);
+      Hud.setVoiceActive(!!zone);
+    }
+
+    // ── Cooldown + speaking ───────────────────────────────────────────────
+    if (actionCooldown > 0) actionCooldown -= delta;
+    if (voiceManager.currentRoom) {
+      Actions.updateVoiceIndicator(localPlayer.sprite, true, voiceManager.isSpeaking());
+    }
   });
 
-  // ─── Funções Auxiliares ────────────────────────────────────────────────────
+  // ─── 8. Atalhos e HUD ────────────────────────────────────────────────────
 
-  /**
-   * Retorna animações para um jogador.
-   * Atlas: texturas compartilhadas + tint por cor (gênero ignorado no atlas).
-   * Procedural: gera texturas únicas com cor + gênero.
-   */
-  function getAnimations(color, gender) {
-    if (useAtlas) return sharedAnimations;
-    return window.GatherSprites.createCharacterTextures(app, color, gender || 'male');
+  function triggerCoffee() {
+    if (!localPlayer || actionCooldown > 0) return;
+    actionCooldown = 180;
+    Actions.showBubble(app, localPlayer.sprite, 'coffee');
+    socket.emit('player:action', { action: 'coffee' });
   }
 
-  /** Cria um jogador remoto e adiciona ao mapa. */
-  function addRemotePlayer(data) {
-    if (remotePlayers.has(data.id)) return;
+  function triggerClaim() {
+    if (!localPlayer) return;
+    const half = C.DESK_AREA / 2;
+    const px = localPlayer.data.x, py = localPlayer.data.y;
+    for (const desk of desks) {
+      if (Math.abs(px - desk.x) < half && Math.abs(py - desk.y) < half) {
+        if (!desk.ownerId || desk.ownerId === socket.id) {
+          socket.emit('desk:claim', { deskId: desk.id });
+          return;
+        }
+      }
+    }
+  }
 
-    const anims  = getAnimations(data.color, data.gender);
-    const sprite = createPlayerSprite(anims, data.name, false, data.color);
+  Hud.bindButtons({
+    onCoffee: triggerCoffee,
+    onClaim:  triggerClaim,
+    onMute:   () => Hud.setMuteState(voiceManager.toggleMute()),
+  });
+
+  input.onKeyDown(e => {
+    if (e.code === 'KeyE') triggerCoffee();
+    if (e.code === 'KeyC') triggerClaim();
+  });
+
+  // ─── 9. Helpers ───────────────────────────────────────────────────────────
+
+  function addRemote(data) {
+    if (remotePlayers.has(data.id)) return;
+    const anims  = getAnims(data.color, data.gender);
+    const sprite = PlayerFactory.createSprite(anims, data.name, false, data.color, useAtlas);
     sprite.x = data.x;
     sprite.y = data.y;
     playerLayer.addChild(sprite);
-
-    setAnimation(sprite, data.direction || 'idle');
-
+    PlayerFactory.setAnimation(sprite, data.direction || 'idle');
     remotePlayers.set(data.id, {
-      sprite,
-      targetX:   data.x,
-      targetY:   data.y,
+      sprite, targetX: data.x, targetY: data.y,
       direction: data.direction || 'idle',
-      color:     data.color,          // guardado para reconstruir texturas ao trocar gênero
-      gender:    data.gender || 'male',
+      color: data.color, gender: data.gender || 'male', name: data.name,
     });
-  }
-
-  /**
-   * Substitui as texturas de animação de um container existente.
-   * Usado quando o gênero muda: recria texturas sem destruir o container.
-   */
-  function rebuildAnimations(container, animations) {
-    container._anims = animations;
-    const cur = container._curAnim;
-    container._curAnim = null; // força setAnimation a reaplicar
-    setAnimation(container, cur || 'idle');
-  }
-
-  /**
-   * Alterna o gênero do jogador local entre 'male' e 'female'.
-   * Regenera as texturas e notifica o servidor.
-   */
-  function toggleGender() {
-    if (!localPlayer) return;
-
-    localGender = localGender === 'male' ? 'female' : 'male';
-
-    // Atualiza o botão
-    const btn = document.getElementById('gender-btn');
-    btn.textContent    = localGender === 'female' ? '♀ Feminino' : '♂ Masculino';
-    btn.dataset.gender = localGender;
-
-    // Reconstrói as texturas com o novo gênero
-    const newAnims = getAnimations(localPlayer.data.color, localGender);
-    rebuildAnimations(localPlayer.sprite, newAnims);
-
-    // Sincroniza com o servidor (que retransmitirá para os outros)
-    socket.emit('player:update', { gender: localGender });
-  }
-
-  /**
-   * Cria o Container de um jogador: AnimatedSprite + label de nome.
-   *
-   * O (0,0) do container representa a posição dos pés do personagem.
-   * O AnimatedSprite tem anchor (0.5, 0.9) — 90% da altura fica acima do (0,0).
-   * Isso garante que mover o container pelo X/Y posiciona os pés no mapa.
-   *
-   * Armazena em container._anim, container._anims e container._curAnim
-   * para permitir troca de animação via setAnimation().
-   */
-  function createPlayerSprite(animations, name, isLocal, color) {
-    const container = new PIXI.Container();
-
-    // ── AnimatedSprite ───────────────────────────────────────────────────────
-    const initialTextures = animations.idle || animations.walk_down;
-    const anim = new PIXI.AnimatedSprite(initialTextures);
-
-    // (0.5, 0.9): centro horizontal, pés no origin do container
-    anim.anchor.set(0.5, 0.9);
-    anim.scale.set(SPRITE_SCALE);
-    anim.animationSpeed = 0.05; // começa como idle (lento)
-    anim.loop = true;
-    anim.play();
-
-    // No modo atlas, 'tint' colore o sprite com a cor do jogador
-    if (useAtlas) anim.tint = color;
-
-    // Referências usadas por setAnimation()
-    container._anim    = anim;
-    container._anims   = animations;
-    container._curAnim = 'idle';
-
-    container.addChild(anim);
-
-    // ── Label de nome ────────────────────────────────────────────────────────
-    const nameLabel = new PIXI.Text(name, {
-      fontSize:           11,
-      fill:               0xffffff,
-      fontFamily:         'Courier New, monospace',
-      fontWeight:         isLocal ? 'bold' : 'normal',
-      dropShadow:         true,
-      dropShadowColor:    0x000000,
-      dropShadowBlur:     3,
-      dropShadowDistance: 1,
-    });
-    nameLabel.anchor.set(0.5, 1); // centralizado, base do texto encosta no topo do sprite
-    nameLabel.y = LABEL_Y;
-    container.addChild(nameLabel);
-
-    // ── Indicador "você" ─────────────────────────────────────────────────────
-    if (isLocal) {
-      const arrow = new PIXI.Text('▼', {
-        fontSize:           11,
-        fill:               0xffd700,
-        dropShadow:         true,
-        dropShadowColor:    0x000000,
-        dropShadowDistance: 1,
-      });
-      arrow.anchor.set(0.5, 0);
-      arrow.y = 4; // logo abaixo dos pés
-      container.addChild(arrow);
-    }
-
-    return container;
-  }
-
-  /**
-   * Troca a animação ativa de um container de personagem.
-   *
-   * Acessa container._anim (o AnimatedSprite interno) e substitui
-   * container._anim.textures pelo array da nova animação.
-   * Não reinicia se a animação já for a mesma (evita flickering).
-   *
-   * @param {PIXI.Container} container
-   * @param {string}         animName  ex: 'idle', 'walk_down', 'walk_left'
-   */
-  function setAnimation(container, animName) {
-    if (container._curAnim === animName) return; // sem mudança
-
-    const anim  = container._anim;
-    const anims = container._anims;
-    if (!anim || !anims) return;
-
-    const textures = anims[animName] || anims.idle;
-    if (!textures || textures.length === 0) return;
-
-    // Troca o array de texturas e reinicia no frame 0
-    anim.textures       = textures;
-    anim.animationSpeed = animName === 'idle' ? 0.05 : 0.15;
-    anim.gotoAndPlay(0);
-
-    container._curAnim = animName;
-  }
-
-  function updatePlayerCount(n) {
-    document.querySelector('#player-count strong').textContent = n;
-  }
-
-  // Liga o botão de gênero (definido no index.html) à função toggleGender
-  document.getElementById('gender-btn').addEventListener('click', toggleGender);
-
-  // ─── Funções de mapa ───────────────────────────────────────────────────────
-  //  (inalteradas em relação à versão anterior)
-
-  function drawMap(layer, width, height) {
-    const TILE = 64;
-    for (let row = 0; row < Math.ceil(height / TILE); row++) {
-      for (let col = 0; col < Math.ceil(width / TILE); col++) {
-        const g = new PIXI.Graphics();
-        g.beginFill((row + col) % 2 === 0 ? 0x2d5a27 : 0x336629);
-        g.drawRect(col * TILE, row * TILE, TILE, TILE);
-        g.endFill();
-        layer.addChild(g);
-      }
-    }
-
-    drawLake(layer, MAP_WIDTH / 2, MAP_HEIGHT / 2, 90, 60);
-
-    const trees = [
-      { x: 120, y: 100 }, { x: 300, y: 80  }, { x: 500, y: 130 },
-      { x: 750, y: 90  }, { x: 950, y: 120 }, { x: 1100, y: 80 },
-      { x: 80,  y: 300 }, { x: 180, y: 550 }, { x: 350, y: 680 },
-      { x: 900, y: 650 }, { x: 1080, y: 500 }, { x: 1120, y: 680 },
-      { x: 60,  y: 700 }, { x: 1150, y: 280 },
-    ];
-    trees.forEach(({ x, y }) => drawTree(layer, x, y));
-    drawPath(layer);
-
-    const border = new PIXI.Graphics();
-    border.lineStyle(4, 0x1a3a15, 1);
-    border.drawRect(0, 0, width, height);
-    layer.addChild(border);
-  }
-
-  function drawTree(layer, x, y) {
-    const trunk = new PIXI.Graphics();
-    trunk.beginFill(0x6b3a2a);
-    trunk.drawRect(x - 5, y + 8, 10, 18);
-    trunk.endFill();
-    layer.addChild(trunk);
-
-    const canopy = new PIXI.Graphics();
-    canopy.beginFill(0x1e6b1e);
-    canopy.drawCircle(x, y, 28);
-    canopy.endFill();
-    layer.addChild(canopy);
-
-    const canopy2 = new PIXI.Graphics();
-    canopy2.beginFill(0x228b22);
-    canopy2.drawCircle(x - 5, y - 5, 20);
-    canopy2.endFill();
-    layer.addChild(canopy2);
-  }
-
-  function drawLake(layer, cx, cy, rx, ry) {
-    const water = new PIXI.Graphics();
-    water.beginFill(0x1e90ff, 0.8);
-    water.drawEllipse(cx, cy, rx, ry);
-    water.endFill();
-    layer.addChild(water);
-
-    const reflection = new PIXI.Graphics();
-    reflection.beginFill(0x87ceeb, 0.4);
-    reflection.drawEllipse(cx - 15, cy - 15, rx * 0.5, ry * 0.4);
-    reflection.endFill();
-    layer.addChild(reflection);
-
-    const border = new PIXI.Graphics();
-    border.lineStyle(3, 0x1565c0, 0.7);
-    border.drawEllipse(cx, cy, rx, ry);
-    layer.addChild(border);
-  }
-
-  function drawPath(layer) {
-    for (let x = 200; x < 1000; x += 24) {
-      if (Math.abs(x - MAP_WIDTH / 2) < 110) continue;
-      const stone = new PIXI.Graphics();
-      stone.beginFill(0x9e9e9e, 0.7);
-      const w = 18 + Math.random() * 8;
-      const h = 14 + Math.random() * 6;
-      stone.drawRoundedRect(x, MAP_HEIGHT / 2 - h / 2 + (Math.random() - 0.5) * 10, w, h, 4);
-      stone.endFill();
-      layer.addChild(stone);
-    }
   }
 
 })();

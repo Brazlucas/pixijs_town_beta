@@ -3,97 +3,169 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gather Clone</title>
+  <title>Office Town</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      background: #0f0f1a;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      background: #0d0d1a;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
       min-height: 100vh;
-      font-family: 'Courier New', monospace;
+      font-family: 'Inter', sans-serif;
       color: #fff;
     }
 
-    #hud {
-      display: flex;
-      gap: 24px;
-      align-items: center;
-      padding: 8px 16px;
-      background: rgba(0, 0, 0, 0.6);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 8px 8px 0 0;
-      font-size: 13px;
-      width: 1200px;
+    /* ── Welcome Modal ──────────────────────────────────────── */
+    #welcome-modal {
+      position: fixed; inset: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.85);
+      backdrop-filter: blur(12px);
     }
+    .modal-box {
+      background: linear-gradient(145deg, #1a1a2e, #16213e);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 20px;
+      padding: 40px 36px;
+      width: 380px;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.6);
+    }
+    .modal-box h2 {
+      font-size: 22px; font-weight: 700;
+      background: linear-gradient(135deg, #a29bfe, #6c5ce7);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+    .modal-box p { font-size: 13px; color: #888; margin-bottom: 24px; }
+    .modal-box label { display: block; font-size: 12px; color: #aaa; margin-bottom: 6px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+    .modal-box input[type=text] {
+      width: 100%; padding: 10px 14px;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px; color: #fff; font-size: 14px; font-family: inherit;
+      outline: none; transition: border-color 0.2s;
+    }
+    .modal-box input[type=text]:focus { border-color: #a29bfe; }
+    .form-group { margin-bottom: 20px; }
 
-    #hud span { color: #aaa; }
-    #hud strong { color: #fff; }
+    .gender-selector { display: flex; gap: 8px; }
+    .gender-opt {
+      flex: 1; padding: 10px; border-radius: 10px; cursor: pointer;
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+      color: #aaa; font-size: 13px; font-family: inherit; font-weight: 500;
+      transition: all 0.2s;
+    }
+    .gender-opt:hover { background: rgba(255,255,255,0.08); color: #fff; }
+    .gender-opt.active { border-color: #a29bfe; color: #a29bfe; background: rgba(162,155,254,0.1); }
+
+    #btn-enter {
+      width: 100%; padding: 12px; border: none; border-radius: 12px; cursor: pointer;
+      background: linear-gradient(135deg, #a29bfe, #6c5ce7);
+      color: #fff; font-size: 15px; font-family: inherit; font-weight: 600;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    #btn-enter:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(108,92,231,0.4); }
+
+    /* ── HUD ─────────────────────────────────────────────────── */
+    #hud {
+      display: flex; gap: 12px; align-items: center;
+      padding: 8px 16px;
+      background: rgba(10,10,25,0.85);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px 12px 0 0;
+      font-size: 12px; width: 1200px;
+      backdrop-filter: blur(8px);
+    }
+    #hud span { color: #777; }
+    #hud strong { color: #ddd; }
+    .hud-sep { width: 1px; height: 20px; background: rgba(255,255,255,0.1); }
+
+    .hud-btn {
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+      color: #bbb; font-family: inherit; font-size: 11px;
+      padding: 4px 10px; border-radius: 6px; cursor: pointer;
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .hud-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+    .hud-btn.active { border-color: #6c5ce7; color: #a29bfe; background: rgba(108,92,231,0.15); }
+
+    #voice-indicator {
+      display: none; align-items: center; gap: 4px;
+      font-size: 11px; color: #4ecdc4;
+    }
+    #voice-indicator.on { display: flex; }
+    #voice-indicator .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: #4ecdc4;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
     #player-count { margin-left: auto; }
-
-    #controls-hint {
-      font-size: 11px;
-      color: #666;
-    }
-
-    #gender-btn {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      color: #ccc;
-      font-family: 'Courier New', monospace;
-      font-size: 12px;
-      padding: 4px 12px;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
-      white-space: nowrap;
-    }
-    #gender-btn:hover {
-      background: rgba(255, 255, 255, 0.15);
-      color: #fff;
-    }
-    #gender-btn[data-gender="female"] {
-      border-color: #ff9fc8;
-      color: #ff9fc8;
-    }
-    #gender-btn[data-gender="female"]:hover {
-      background: rgba(255, 159, 200, 0.15);
-    }
+    #controls-hint { font-size: 10px; color: #555; }
 
     #game-canvas-wrapper {
-      border: 2px solid rgba(255, 255, 255, 0.15);
-      border-top: none;
-      line-height: 0; /* remove gap under canvas */
+      border: 2px solid rgba(255,255,255,0.08);
+      border-top: none; line-height: 0;
+      border-radius: 0 0 12px 12px;
+      overflow: hidden;
     }
-
     canvas { display: block; }
   </style>
 </head>
 <body>
 
+  <!-- Welcome Modal -->
+  <div id="welcome-modal">
+    <div class="modal-box">
+      <h2>🏢 Office Town</h2>
+      <p>Configure seu avatar para entrar no escritório virtual</p>
+      <div class="form-group">
+        <label>Seu nome</label>
+        <input type="text" id="input-name" placeholder="Digite seu nome..." maxlength="20" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>Gênero do avatar</label>
+        <div class="gender-selector">
+          <button class="gender-opt active" data-gender="male">♂ Masculino</button>
+          <button class="gender-opt" data-gender="female">♀ Feminino</button>
+        </div>
+      </div>
+      <button id="btn-enter">Entrar</button>
+    </div>
+  </div>
+
+  <!-- HUD -->
   <div id="hud">
-    <div id="player-name"><span>Você: </span><strong>Conectando...</strong></div>
-    <button id="gender-btn" data-gender="male">♂ Masculino</button>
+    <div id="player-name"><span>Você: </span><strong>…</strong></div>
+    <div class="hud-sep"></div>
+    <button id="btn-coffee" class="hud-btn">☕ Café</button>
+    <button id="btn-claim" class="hud-btn">📌 Reservar Mesa</button>
+    <button id="btn-mute" class="hud-btn">🎤 Mic</button>
+    <div id="voice-indicator"><div class="dot"></div><span>Na sala de voz</span></div>
+    <div class="hud-sep"></div>
     <div id="player-count"><span>Online: </span><strong>0</strong></div>
-    <div id="controls-hint">WASD / Setas para mover</div>
+    <div id="controls-hint">WASD mover · E café · C reservar mesa</div>
   </div>
 
   <div id="game-canvas-wrapper"></div>
 
-  <!-- PixiJS v7 via CDN -->
+  <!-- Libs externas -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
-
-  <!-- Socket.io client (servido automaticamente pelo servidor Express) -->
   <script src="/socket.io/socket.io.js"></script>
 
-  <!-- Gerador de sprites procedurais (fallback quando não há atlas) -->
+  <!-- Módulos internos (ordem importa: dependências primeiro) -->
+  <script src="src/config.js"></script>
   <script src="src/sprites.js"></script>
+  <script src="src/input.js"></script>
+  <script src="src/camera.js"></script>
+  <script src="src/welcome.js"></script>
+  <script src="src/player.js"></script>
+  <script src="src/map.js"></script>
+  <script src="src/actions.js"></script>
+  <script src="src/hud.js"></script>
+  <script src="src/voice.js"></script>
 
-  <!-- Lógica do jogo -->
+  <!-- Entry point (orquestrador) -->
   <script src="src/main.js"></script>
 
 </body>
